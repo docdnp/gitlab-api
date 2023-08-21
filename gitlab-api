@@ -63,7 +63,10 @@ fi
 # Gitlab API functions
 # ------------------------------------------------------------------------------------------------------------------
 # api               <endpoint>        return API result for endpoint
-glapi () { $CURL --silent --header 'Accept: application/json' --header "PRIVATE-TOKEN: $GL_TOKEN" "https://$GL_SERVER/api/v4/$1" ; }
+glapi () { 
+    $CURL --silent --header 'Accept: application/json' --header "PRIVATE-TOKEN: $GL_TOKEN" "https://$GL_SERVER/api/v4/$1"
+    echo
+}
 
 # id                                  return digits after '=' in "path = id"
 glid          () { sed -re 's/^.*\=|;|\s+//g'; }
@@ -73,9 +76,9 @@ glfilter      () { local pattern="$(glrexp.or $@)"; grep -P "\.(?:$pattern)"; }
 # forall            <cmd> <args>      call <cmd> with <args> for every input line (reference line in args with {})
 glforall      () { xargs -i "$0" "$@"; }
 # gron.filter       <args>            combine gron and filter <args>
-glgron.filter () { gron | glfilter "$@"; }
+glgron.filter () { gron -s | glfilter "$@"; }
 # gron.grep         <args>            combine gron and grep <args>
-glgron.grep   () { gron | grep "$@"; }
+glgron.grep   () { gron -s | grep "$@"; }
 # rootgroup         <groupname>       return root group id of all projects in <groupname>
 glrootgroup   () {
     glapi groups \
@@ -116,10 +119,13 @@ glhelp () {
     | xargs -i grep '# {}' $0 \
     | sed -re 's|^#|  |'
     echo
+    exit "$1"
 }
 
+exiterr () { echo "Error: $@"; glhelp 1; }
+
 fn="$1"
-[ -n "$fn" ] && command -v gl$fn >&/dev/null && { shift && gl$fn "$@"; exit $? ; }
-[ -n "$fn" ] && echo "Error: unknown command: $fn"
-glhelp
-exit 1
+[ -n "$fn" ] || glhelp 0 && { 
+    command -v gl$fn >&/dev/null \
+    || exiterr "Error: unknown command: $fn"
+} && shift && gl$fn "$@" 
