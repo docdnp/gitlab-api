@@ -1,0 +1,113 @@
+#!/bin/bash
+GL_CONFIG_DIR=~/.glapi
+GL_CONFIG=~/.glapi/glapi.conf
+GL_BINDIR=~/.glapi/bin
+GL_URL_CURL=https://everything.curl.dev/get
+GL_URL_DOCKER=https://docs.docker.com/engine/install
+GL_URL_GRON=https://github.com/tomnomnom/gron/releases
+GL_CURL_DOCKER_IMG=curlimages/curl:latest
+
+export PATH=~/.glapi/bin:$PATH
+
+CURL=curl
+GRON=gron
+
+installed () { command -v "$1" >&/dev/null; }
+! installed docker && ! installed $CURL && { echo "Error: Neither docker or at least curl are available:
+    * see: $GL_URL_CURL
+    * see: $GL_URL_DOCKER
+    "
+    exit 1
+}
+installed $CURL || {
+    CURL="docker run -i --rm curlimages/curl"
+    echo "info: curl is missing using docker image instead $GL_CURL_DOCKER_IMG ..." 2>&1
+}
+installed $GRON || {
+    echo -n "info: gron is missing installing it locally under $GL_BINDIR ..." 2>&1
+    tmpgron=$(mktemp)
+    $CURL -s $GL_URL_GRON -o /dev/stdout \
+        | grep -Eo 'tomn.*download[^"]+' \
+        | grep -i "$(uname -s)" \
+        | grep $(uname -p | grep -Eo '386|64') \
+        | grep "$(uname -a | grep -i arm || echo amd)"\
+        | xargs -i $CURL -Ls https://github.com/{} -o /dev/stdout \
+        | tar xzf - gron -O > $tmpgron \
+    && chmod +x $tmpgron && { $tmpgron --help >& $tmpgron.help ; } || {
+        echo " failed"
+        rm $tmpgron*
+        echo "Error: Couldn't install gron. Try to install it manually: $GL_URL_GRON"
+        exit 1
+    }
+    echo " success"
+    mv $tmpgron $GL_BINDIR/gron
+}
+
+mkdir -p $GL_BINDIR
+
+if [ -e "$GL_CONFIG" ] ; then
+    GLAPI_CONF=$(grep -P '^\s*(GL_TOKEN|GL_SERVER)\s*=' $GL_CONFIG | sed -re 's/\s+//g' -e 's/^(.+)$/export \1/g')
+    eval $GLAPI_CONF
+fi
+
+[ -z "$GL_TOKEN"  ] && echo "Either set environment variable GL_TOKEN to your personal Gitlab token or add the following line 'GL_TOKEN=<YOUR_TOKEN>' to ~/.glapi" && exit 1
+[ -z "$GL_SERVER" ] && echo "Either set environment variable GL_SERVER to your Gitlab instance URL or add the following line 'GL_SERVER=<YOUR_GITLAB_INSTANCE_URL>' to ~/.glapi" && exit 1
+
+# api               <endpoint>        return API result for endpoint
+glapi () { $CURL --silent --header "PRIVATE-TOKEN: $GL_TOKEN" "https://$GL_SERVER/api/v4/$1" ; }
+
+# id                                  return digits after '=' in "path = id"
+glid          () { sed -re 's/^.*\=|;|\s+//g'; }
+glrexp.or     () { echo "$@" | tr ' ' '|' ; }
+# filter            <args>            return all matches where args build an arg1|arg2|...|argN
+glfilter      () { local pattern="$(glrexp.or $@)"; grep -P "\.(?:$pattern)"; }
+# forall            <cmd> <args>      call <cmd> with <args> for every input line (reference line in args with {})
+glforall      () { xargs -i cmd.glapi "$@"; }
+# gron.filter       <args>            combine gron and filter <args>
+glgron.filter () { gron | glfilter "$@"; }
+# gron.grep         <args>            combine gron and grep <args>
+glgron.grep   () { gron | grep "$@"; }
+# rootgroup         <groupname>       return root group id of all projects in <groupname>
+glrootgroup   () {
+    glapi groups \
+    | glgron.filter full_path id \
+    | grep -Pv "$1"'.*/.*/' \
+    | grep -A1 "$1" \
+    | tail -1 \
+    | glid \
+    | glforall api groups/{} \
+    | glgron.grep json.parent_id \
+    | $0 id
+}
+# group.info        <id>              return group object of group with <id>
+glgroup.info      () { glapi groups/$1; }
+# group.repos       <id>              return all repos under group with <id>
+glgroup.repos     () { glapi groups/$1 | glgron.grep .http_url_to_repo | sed -re 's/.*=|"|\s+//g'; }
+# group.subgroups   <id>              return all subgroups under group with <id>
+glgroup.subgroups () { glapi groups/$1/subgroups; }
+
+# group.allrepos    <id>              return all repos under group with <id> (recursively)
+glgroup.allrepos () {
+    local group="$1"
+    glgroup.subgroups $group | glgron.filter id | glid | while read gid ; do
+        glgroup.repos $gid
+        glgroup.allrepos $gid
+    done
+}
+
+# help                                print this help text
+glhelp () { 
+    echo -e "Usage: $(basename $0) <cmd> <args>\n\n Commands:"
+    set \
+    | grep  -E 'gl.*\()' \
+    | sed -re 's/^gl\.?|\s.*//g' \
+    | xargs -i grep '# {}' $0 \
+    | sed -re 's|^#|  |'
+    echo
+}
+
+fn="$1"
+[ -n "$fn" ] && command -v gl$fn >&/dev/null && { shift && gl$fn "$@"; exit $? ; }
+[ -n "$fn" ] && echo "Error: unknown command: $fn"
+glhelp
+exit 1
