@@ -15,6 +15,10 @@ chmod +x gitlab-api
 
 ```raw
 Usage: gitlab-api <cmd> <args>
+  query Gitlab API
+
+ Docs:
+   https://docs.gitlab.com/ee/api/rest
 
  Commands:
    api               <endpoint>        return API result for endpoint

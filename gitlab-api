@@ -1,10 +1,11 @@
-#!/bin/bash
+#!/usr/bin/env bash
 GL_CONFIG_DIR=~/.glapi
 GL_CONFIG=~/.glapi/glapi.conf
 GL_BINDIR=~/.glapi/bin
 GL_URL_CURL=https://everything.curl.dev/get
 GL_URL_DOCKER=https://docs.docker.com/engine/install
 GL_URL_GRON=https://github.com/tomnomnom/gron/releases
+GL_URL_APIDOCS=https://docs.gitlab.com/ee/api/rest
 GL_CURL_DOCKER_IMG=curlimages/curl:latest
 
 export PATH=~/.glapi/bin:$PATH
@@ -12,6 +13,9 @@ export PATH=~/.glapi/bin:$PATH
 CURL=curl
 GRON=gron
 
+# ------------------------------------------------------------------------------------------------------------------
+# Setup
+# ------------------------------------------------------------------------------------------------------------------
 installed () { command -v "$1" >&/dev/null; }
 ! installed docker && ! installed $CURL && { echo "Error: Neither docker or at least curl are available:
     * see: $GL_URL_CURL
@@ -20,11 +24,14 @@ installed () { command -v "$1" >&/dev/null; }
     exit 1
 }
 installed $CURL || {
-    CURL="docker run -i --rm curlimages/curl"
-    echo "info: curl is missing using docker image instead $GL_CURL_DOCKER_IMG ..." 2>&1
+    echo -n "info: curl is missing using docker image instead $GL_CURL_DOCKER_IMG ..." 1>&2 
+    mkdir -p $GL_BINDIR
+    echo -e '#!/usr/bin/env bash\ndocker run -i --rm curlimages/curl "$@"' > $GL_BINDIR/curl
+    chmod +x $GL_BINDIR/curl
+    echo " success" 1>&2
 }
 installed $GRON || {
-    echo -n "info: gron is missing installing it locally under $GL_BINDIR ..." 2>&1
+    echo -n "info: gron is missing installing it locally under $GL_BINDIR ..." 1>&2
     mkdir -p $GL_BINDIR
     tmpgron=$(mktemp)
     $CURL -s $GL_URL_GRON -o /dev/stdout \
@@ -40,8 +47,8 @@ installed $GRON || {
         echo "Error: Couldn't install gron. Try to install it manually: $GL_URL_GRON"
         exit 1
     }
-    echo " success"
     mv $tmpgron $GL_BINDIR/gron
+    echo " success" 1>&2
 }
 
 if [ -e "$GL_CONFIG" ] ; then
@@ -52,8 +59,11 @@ fi
 [ -z "$GL_TOKEN"  ] && echo "Either set environment variable GL_TOKEN to your personal Gitlab token or add the following line 'GL_TOKEN=<YOUR_TOKEN>' to ~/.glapi" && exit 1
 [ -z "$GL_SERVER" ] && echo "Either set environment variable GL_SERVER to your Gitlab instance URL or add the following line 'GL_SERVER=<YOUR_GITLAB_INSTANCE_URL>' to ~/.glapi" && exit 1
 
+# ------------------------------------------------------------------------------------------------------------------
+# Gitlab API functions
+# ------------------------------------------------------------------------------------------------------------------
 # api               <endpoint>        return API result for endpoint
-glapi () { $CURL --silent --header "PRIVATE-TOKEN: $GL_TOKEN" "https://$GL_SERVER/api/v4/$1" ; }
+glapi () { $CURL --silent --header 'Accept: application/json' --header "PRIVATE-TOKEN: $GL_TOKEN" "https://$GL_SERVER/api/v4/$1" ; }
 
 # id                                  return digits after '=' in "path = id"
 glid          () { sed -re 's/^.*\=|;|\s+//g'; }
@@ -61,7 +71,7 @@ glrexp.or     () { echo "$@" | tr ' ' '|' ; }
 # filter            <args>            return all matches where args build an arg1|arg2|...|argN
 glfilter      () { local pattern="$(glrexp.or $@)"; grep -P "\.(?:$pattern)"; }
 # forall            <cmd> <args>      call <cmd> with <args> for every input line (reference line in args with {})
-glforall      () { xargs -i cmd.glapi "$@"; }
+glforall      () { xargs -i "$0" "$@"; }
 # gron.filter       <args>            combine gron and filter <args>
 glgron.filter () { gron | glfilter "$@"; }
 # gron.grep         <args>            combine gron and grep <args>
@@ -94,9 +104,12 @@ glgroup.allrepos () {
     done
 }
 
+# project.info      <id>              return project object of project with <id>
+glproject.info      () { glapi projects/$1; }
+
 # help                                print this help text
 glhelp () { 
-    echo -e "Usage: $(basename $0) <cmd> <args>\n\n Commands:"
+    echo -e "Usage: $(basename $0) <cmd> <args>\n  query Gitlab API\n\n Docs:\n   $GL_URL_APIDOCS\n\n Commands:"
     set \
     | grep  -E 'gl.*\()' \
     | sed -re 's/^gl\.?|\s.*//g' \
