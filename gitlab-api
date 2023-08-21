@@ -25,6 +25,7 @@ installed $CURL || {
 }
 installed $GRON || {
     echo -n "info: gron is missing installing it locally under $GL_BINDIR ..." 2>&1
+    mkdir -p $GL_BINDIR
     tmpgron=$(mktemp)
     $CURL -s $GL_URL_GRON -o /dev/stdout \
         | grep -Eo 'tomn.*download[^"]+' \
@@ -42,8 +43,6 @@ installed $GRON || {
     echo " success"
     mv $tmpgron $GL_BINDIR/gron
 }
-
-mkdir -p $GL_BINDIR
 
 if [ -e "$GL_CONFIG" ] ; then
     GLAPI_CONF=$(grep -P '^\s*(GL_TOKEN|GL_SERVER)\s*=' $GL_CONFIG | sed -re 's/\s+//g' -e 's/^(.+)$/export \1/g')
