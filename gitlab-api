@@ -88,7 +88,7 @@ glrootgroup   () {
     | tail -1 \
     | glid \
     | glforall api groups/{} \
-    | glgron.grep json.parent_id \
+    | glgron.grep 'json\[0\].parent_id' \
     | $0 id
 }
 # group.info        <id>              return group object of group with <id>
@@ -99,13 +99,21 @@ glgroup.repos     () { glapi groups/$1 | glgron.grep .http_url_to_repo | sed -re
 glgroup.subgroups () { glapi groups/$1/subgroups; }
 
 # group.allrepos    <id>              return all repos under group with <id> (recursively)
-glgroup.allrepos () {
+glgroup.allrepos  () {
     local group="$1"
     glgroup.subgroups $group | glgron.filter id | glid | while read gid ; do
         glgroup.repos $gid
         glgroup.allrepos $gid
     done
 }
+
+getall            () { local p=0; while glapi "$1?all_available=true&per_page=100&page=$p" | grep -Ev '^\[\]$' | grep . ; do p=$((p+1)); done; }
+# allgroups                           return all groups
+glallgroups       () { getall groups; }
+# allprojects                         return all projects
+glallprojects     () { getall projects; }
+# search            <scope> <search>  return all items of <scope> (groups,projects) matching <search>
+glsearch          () { glapi "search?scope=$1&search=$2"; }
 
 # project.info      <id>              return project object of project with <id>
 glproject.info      () { glapi projects/$1; }

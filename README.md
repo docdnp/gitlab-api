@@ -21,6 +21,8 @@ Usage: gitlab-api <cmd> <args>
    https://docs.gitlab.com/ee/api/rest
 
  Commands:
+   allgroups                           return all groups
+   allprojects                         return all projects
    api               <endpoint>        return API result for endpoint
    filter            <args>            return all matches where args build an arg1|arg2|...|argN
    forall            <cmd> <args>      call <cmd> with <args> for every input line (reference line in args with {})
@@ -32,5 +34,7 @@ Usage: gitlab-api <cmd> <args>
    group.subgroups   <id>              return all subgroups under group with <id>
    help                                print this help text
    id                                  return digits after '=' in "path = id"
+   project.info      <id>              return project object of project with <id>
    rootgroup         <groupname>       return root group id of all projects in <groupname>
+   search            <scope> <search>  return all items of <scope> (groups,projects) matching <search>
 ```
