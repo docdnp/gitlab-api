@@ -13,7 +13,7 @@ chmod +x gitlab-api
 
 ## How to use
 
-```shell
+```raw
 Usage: gitlab-api <cmd> <args>
 
  Commands:
