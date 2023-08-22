@@ -2,13 +2,13 @@
 GL_CONFIG_DIR=${GL_CONFIG_DIR:-~/.glapi}
 GL_CONFIG=${GL_CONFIG:-$GL_CONFIG_DIR/glapi.conf}
 GL_BINDIR=${GL_BINDIR:-$GL_CONFIG_DIR/bin}
+GL_CONFIG_VARIABLES='TOKEN|SERVER|USERNAME|TEMPLATE_HOST|REGISTRY'
 GL_URL_CURL=https://everything.curl.dev/get
 GL_URL_DOCKER=https://docs.docker.com/engine/install
 GL_URL_GRON=https://github.com/tomnomnom/gron/releases
 GL_URL_YQ=https://github.com/mikefarah/yq/releases
 GL_URL_APIDOCS=https://docs.gitlab.com/ee/api/rest
 GL_CURL_DOCKER_IMG=curlimages/curl:latest
-
 export PATH=$GL_BINDIR:$PATH
 
 CURL=curl
@@ -64,13 +64,13 @@ check_preconditions () {
     install-locally gron $GL_URL_GRON app-kernel-arch-version.tgz
 
     read_config
-    [ -z "$GL_TOKEN"    ] && exiterr "Either set GL_TOKEN, or call: gitlab-api init"
-    [ -z "$GL_SERVER"   ] && exiterr "Either set GL_SERVER, or call: gitlab-api init"
-    [ -z "$GL_USERNAME" ] && exiterr "Either set GL_USERNAME, or call: gitlab-api init"
+    for var in ${GL_CONFIG_VARIABLES//|/ } ; do
+        eval "[ -z \"\${GL_$var}\" ]" && exiterr "Either set $var, or call: gitlab-api init"
+    done
 }
 read_config () {
     if [ -e "$GL_CONFIG" ] ; then
-        GLAPI_CONF=$(grep -P '^\s*(GL_TOKEN|GL_SERVER|GL_USERNAME)\s*=' $GL_CONFIG | sed -re 's/\s+//g' -e 's/^(.+)$/export \1/g')
+        GLAPI_CONF=$(grep -P '^\s*GL_('"${GL_CONFIG_VARIABLES}"')\s*=' $GL_CONFIG | sed -re 's/\s+//g' -e 's/^(.+)$/export \1/g')
         eval $GLAPI_CONF
     fi
 }
@@ -83,16 +83,22 @@ glinit () {
     installed git  || exiterr "git is not installed"
     installed perl || exiterr "perl is not installed"
     read_config
-    USERNAME="$([ -n "$GL_USERNAME" ] && echo $GL_USERNAME || git config user.name)"
-    SERVER="$(  [ -n "$GL_SERVER"   ] && echo $GL_SERVER   || git remote get-url origin | perl -pe 's{^(?:git|https?://|git@)(.+?)[:/].*}{$1}')"
-    [ -n "$GL_USERNAME" ] || read -p "Enter your Gitlab Username       : " -ei "$USERNAME" GL_USERNAME
-    [ -n "$GL_TOKEN"    ] || read -p "Enter your Gitlab Token          : " -ei "$GL_TOKEN" GL_TOKEN
-    [ -n "$GL_SERVER"   ] || read -p "Enter your Gitlab Server Instance: " -ei "$SERVER"   GL_SERVER
+    USERNAME="$(    [ -n "$GL_USERNAME"      ] && echo $GL_USERNAME      || git config user.name)"
+    TPL_REGHOST="$( [ -n "$GL_TEMPLATE_HOST" ] && echo $GL_TEMPLATE_HOST || echo registry.gitlab.com)"
+    SERVER="$(      [ -n "$GL_SERVER"        ] && echo $GL_SERVER   || git remote get-url origin | perl -pe 's{^(?:git|https?://|git@)(.+?)[:/].*}{$1}')"
+    REGISTRY="$(    [ -n "$GL_REGISTRY"      ] && echo $GL_REGISTRY_HOST || echo ${SERVER/gitlab/registry-gitlab})"
+    [ -n "$GL_USERNAME"      ] || read -p "Enter your Gitlab Username     : " -ei "$USERNAME"      GL_USERNAME
+    [ -n "$GL_TOKEN"         ] || read -p "Enter your Gitlab Token        : " -ei "$GL_TOKEN"      GL_TOKEN
+    [ -n "$GL_SERVER"        ] || read -p "Enter your Gitlab Server       : " -ei "$SERVER"        GL_SERVER
+    [ -n "$GL_REGISTRY"      ] || read -p "Enter your Gitlab Registry     : " -ei "$REGISTRY"      GL_REGISTRY
+    [ -n "$GL_TEMPLATE_HOST" ] || read -p "Enter your Gitlab Template Host: " -ei "$TPL_REGHOST"   GL_TEMPLATE_HOST
     [ -z "$GL_USERNAME" ] || [ -z "$GL_TOKEN" ] || [ -z "$GL_SERVER" ] \
         && exiterr "some variables are missing: GL_USERNAME, GL_TOKEN, GL_SERVER"
-    echo "GL_USERNAME = $GL_USERNAME"  > $GL_CONFIG
-    echo "GL_TOKEN    = $GL_TOKEN"    >> $GL_CONFIG
-    echo "GL_SERVER   = $GL_SERVER"   >> $GL_CONFIG
+    echo "GL_USERNAME       = $GL_USERNAME"      > $GL_CONFIG
+    echo "GL_TOKEN          = $GL_TOKEN"         >> $GL_CONFIG
+    echo "GL_SERVER         = $GL_SERVER"        >> $GL_CONFIG
+    echo "GL_REGISTRY       = $GL_REGISTRY"      >> $GL_CONFIG
+    echo "GL_TEMPLATE_HOST  = $GL_TEMPLATE_HOST" >> $GL_CONFIG
     chmod 0600 $GL_CONFIG
     echo Created config: $GL_CONFIG
     echo Checking preconditions ...
@@ -208,14 +214,14 @@ glproject.vars () {
     echo "\
  CI_REGISTRY_USER: $GL_USERNAME
  CI_REGISTRY_PASSWORD: $GL_TOKEN
- CI_TEMPLATE_REGISTRY_HOST: $GL_REGISTRY_HOST
+ CI_TEMPLATE_REGISTRY_HOST: $GL_TEMPLATE_HOST
  CI_REGISTRY: $GL_REGISTRY
 "
     rm $vars_groups $vars_project $id_parents $id_includes $id_self
 }
 
 main () {
-    check_preconditions
+    [ "$1" == init ] || check_preconditions
     fn="$1"
     [ -n "$fn" ] || glhelp 0 && { 
         command -v gl$fn >&/dev/null \
