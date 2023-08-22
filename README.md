@@ -22,7 +22,7 @@ Usage: gitlab-api <cmd> <args>
 
  Commands:
    allgroups                           return all groups
-   allparents        <id>              return the chain of parent ids starting by <id>
+   allparents        <id> <chain>      return all parent ids starting by group <id> prepending <chain>
    allprojects                         return all projects
    api               <endpoint>        return API result for endpoint
    filter            <args>            return all matches where args build an arg1|arg2|...|argN
