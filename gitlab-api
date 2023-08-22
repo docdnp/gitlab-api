@@ -216,6 +216,7 @@ glproject.vars () {
  CI_REGISTRY_PASSWORD: $GL_TOKEN
  CI_TEMPLATE_REGISTRY_HOST: $GL_TEMPLATE_HOST
  CI_REGISTRY: $GL_REGISTRY
+ CI_DEFAULT_BRANCH: $(git symbolic-ref refs/remotes/origin/HEAD | grep -Eo '[^/]+$')
 "
     rm $vars_groups $vars_project $id_parents $id_includes $id_self
 }
