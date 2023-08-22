@@ -86,7 +86,7 @@ glinit () {
     USERNAME="$(    [ -n "$GL_USERNAME"      ] && echo $GL_USERNAME      || git config user.name)"
     TPL_REGHOST="$( [ -n "$GL_TEMPLATE_HOST" ] && echo $GL_TEMPLATE_HOST || echo registry.gitlab.com)"
     SERVER="$(      [ -n "$GL_SERVER"        ] && echo $GL_SERVER   || git remote get-url origin | perl -pe 's{^(?:git|https?://|git@)(.+?)[:/].*}{$1}')"
-    REGISTRY="$(    [ -n "$GL_REGISTRY"      ] && echo $GL_REGISTRY_HOST || echo ${SERVER/gitlab/registry-gitlab})"
+    REGISTRY="$(    [ -n "$GL_REGISTRY"      ] && echo $GL_REGISTRY_HOST || echo ${SERVER/gitlab/gitlab-registry})"
     [ -n "$GL_USERNAME"      ] || read -p "Enter your Gitlab Username     : " -ei "$USERNAME"      GL_USERNAME
     [ -n "$GL_TOKEN"         ] || read -p "Enter your Gitlab Token        : " -ei "$GL_TOKEN"      GL_TOKEN
     [ -n "$GL_SERVER"        ] || read -p "Enter your Gitlab Server       : " -ei "$SERVER"        GL_SERVER
