@@ -5,18 +5,46 @@ GL_BINDIR=~/.glapi/bin
 GL_URL_CURL=https://everything.curl.dev/get
 GL_URL_DOCKER=https://docs.docker.com/engine/install
 GL_URL_GRON=https://github.com/tomnomnom/gron/releases
+GL_URL_YQ=https://github.com/mikefarah/yq/releases
 GL_URL_APIDOCS=https://docs.gitlab.com/ee/api/rest
 GL_CURL_DOCKER_IMG=curlimages/curl:latest
 
 export PATH=~/.glapi/bin:$PATH
 
 CURL=curl
-GRON=gron
 
 # ------------------------------------------------------------------------------------------------------------------
 # Setup
 # ------------------------------------------------------------------------------------------------------------------
 installed () { command -v "$1" >&/dev/null; }
+install-locally () {
+    installed $1 && return
+    local app="$1" url="$2" pattern="${3:-app-kernel-arch-version.tgz}"
+    local kernel="$(uname -s | tr '[:upper:]' '[:lower:]')"
+    local arch="$(uname -a | grep -i arm || echo amd)$(uname -p | grep -Eo '386|64')"
+    echo -n "info: $app is missing: installing it locally under $GL_BINDIR ..." 1>&2 
+    mkdir -p $GL_BINDIR
+    tmpapp=$(mktemp)
+    $CURL -Ls $url -o /dev/stdout \
+        | grep -E download/.*gz | grep -Po '/[^"]+/v\d+\.\d+\.\d+' | sort -u | { 
+            read urlstem 
+            local version=${urlstem//*\/v/}
+            pattern=${pattern/app/$app}
+            pattern=${pattern/version/$version}
+            pattern=${pattern/kernel/$kernel}
+            pattern=${pattern/arch/$arch}
+            $CURL -Ls https://github.com$urlstem/$pattern  \
+                | tar xzf - -O > $tmpapp
+        } \
+    && chmod +x $tmpapp && { $tmpapp --help >& $tmpapp.help ; } || {
+        echo " failed"
+        rm $tmpapp*
+        echo "Error: Couldn't install $app. Try to install it manually: $url"
+        exit 1
+    }
+    mv $tmpapp $GL_BINDIR/$app
+    echo " success" 1>&2
+}
 ! installed docker && ! installed $CURL && { echo "Error: Neither docker or at least curl are available:
     * see: $GL_URL_CURL
     * see: $GL_URL_DOCKER
@@ -30,27 +58,8 @@ installed $CURL || {
     chmod +x $GL_BINDIR/curl
     echo " success" 1>&2
 }
-installed $GRON || {
-    echo -n "info: gron is missing installing it locally under $GL_BINDIR ..." 1>&2
-    mkdir -p $GL_BINDIR
-    tmpgron=$(mktemp)
-    $CURL -s $GL_URL_GRON -o /dev/stdout \
-        | grep -Eo 'tomn.*download[^"]+' \
-        | grep -i "$(uname -s)" \
-        | grep $(uname -p | grep -Eo '386|64') \
-        | grep "$(uname -a | grep -i arm || echo amd)"\
-        | xargs -i $CURL -Ls https://github.com/{} -o /dev/stdout \
-        | tar xzf - gron -O > $tmpgron \
-    && chmod +x $tmpgron && { $tmpgron --help >& $tmpgron.help ; } || {
-        echo " failed"
-        rm $tmpgron*
-        echo "Error: Couldn't install gron. Try to install it manually: $GL_URL_GRON"
-        exit 1
-    }
-    mv $tmpgron $GL_BINDIR/gron
-    echo " success" 1>&2
-}
-
+install-locally yq   $GL_URL_YQ   app_kernel_arch.tar.gz
+install-locally gron $GL_URL_GRON app-kernel-arch-version.tgz
 if [ -e "$GL_CONFIG" ] ; then
     GLAPI_CONF=$(grep -P '^\s*(GL_TOKEN|GL_SERVER)\s*=' $GL_CONFIG | sed -re 's/\s+//g' -e 's/^(.+)$/export \1/g')
     eval $GLAPI_CONF
@@ -67,7 +76,6 @@ glapi () {
     $CURL --silent --header 'Accept: application/json' --header "PRIVATE-TOKEN: $GL_TOKEN" "https://$GL_SERVER/api/v4/$1"
     echo
 }
-
 # id                                  return digits after '=' in "path = id"
 glid          () { sed -re 's/^.*\=|;|\s+//g'; }
 glrexp.or     () { echo "$@" | tr ' ' '|' ; }
@@ -91,14 +99,12 @@ glrootgroup   () {
     | glgron.grep 'json\[0\].parent_id' \
     | $0 id
 }
-
 # group.info        <id>              return group object of group with <id>
 glgroup.info      () { glapi groups/$1; }
 # group.repos       <id>              return all repos under group with <id>
 glgroup.repos     () { glapi groups/$1 | glgron.grep .http_url_to_repo | sed -re 's/.*=|"|\s+//g'; }
 # group.subgroups   <id>              return all subgroups under group with <id>
 glgroup.subgroups () { glapi groups/$1/subgroups; }
-
 # group.allrepos    <id>              return all repos under group with <id> (recursively)
 glgroup.allrepos  () {
     local group="$1"
@@ -107,7 +113,6 @@ glgroup.allrepos  () {
         glgroup.allrepos $gid
     done
 }
-
 getall            () { local p=0; while glapi "$1?all_available=true&per_page=100&page=$p" | grep -Ev '^\[\]$' | grep . ; do p=$((p+1)); done; }
 # allgroups                           return all groups
 glallgroups       () { getall groups; }
@@ -123,13 +128,10 @@ glallparents  () {
         | glid \
         | glforall allparents {} "$2 $1" 
 }
-
 # search            <scope> <search>  return all items of <scope> (groups,projects) matching <search>
 glsearch          () { glapi "search?scope=$1&search=$2"; }
-
 # project.info      <id>              return project object of project with <id>
 glproject.info      () { glapi projects/$1; }
-
 # help                                print this help text
 glhelp () { 
     echo -e "Usage: $(basename $0) <cmd> <args>\n  query Gitlab API\n\n Docs:\n   $GL_URL_APIDOCS\n\n Commands:"
@@ -140,6 +142,49 @@ glhelp () {
     | sed -re 's|^#|  |'
     echo
     exit "$1"
+}
+# project.vars      <name>  <cifile>  return all CI variable of project <name> with <cifile:-.gitlab-ci.yml>
+glproject.vars () {
+    local projectname=$1 cifile=${2:-.gitlab-ci.yml} id_self=$(mktemp)
+    echo "$projectname" \
+        | glforall search projects {} \
+        | glgron.grep -E '\]\.(id|namespace\.parent_id)' \
+        | glid \
+        | xargs -n2 echo > $id_self
+
+    local id_includes=$(mktemp)
+    yq .include.[].project $cifile \
+        | grep -v null \
+        | xargs -n1 basename \
+        | glforall search projects {} \
+        | glgron.grep -E '\]\.(id|namespace\.parent_id)' \
+        | glid \
+        | xargs -n2 echo > $id_includes
+
+    local id_parents=$(mktemp)
+    cat $id_self $id_includes | awk '{print $2}' | sort -u \
+        | glforall allparents {} >  $id_parents
+
+    local vars_project=$(mktemp)
+    cat $id_self $id_includes | awk '{print $1}' \
+        | glforall api projects/{}/variables > $vars_project
+
+    local vars_groups=$(mktemp)
+    cat $id_parents | tr ' ' '\n' \
+        | glforall api groups/{}/variables > $vars_groups
+
+    cat $vars_groups \
+        | glgron.grep -E '\.(key|value)' \
+        | gron -u | yq -P .[] | grep -v null \
+        | perl -pe 's/^-.*key:(.*)\n/$1: /m;' \
+                -e 's/\s+value://'
+    echo "\
+ CI_REGISTRY_USER: $GL_USERNAME
+ CI_REGISTRY_PASSWORD: $GL_TOKEN
+ CI_TEMPLATE_REGISTRY_HOST: $GL_REGISTRY_HOST
+ CI_REGISTRY: $GL_REGISTRY
+"
+    rm $vars_groups $vars_project $id_parents $id_includes $id_self
 }
 
 exiterr () { echo "Error: $@"; glhelp 1; }

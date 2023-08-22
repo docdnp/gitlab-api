@@ -36,6 +36,7 @@ Usage: gitlab-api <cmd> <args>
    help                                print this help text
    id                                  return digits after '=' in "path = id"
    project.info      <id>              return project object of project with <id>
+   project.vars      <name>  <cifile>  return all CI variable of project <name> with <cifile:-.gitlab-ci.yml>
    rootgroup         <groupname>       return root group id of all projects in <groupname>
    search            <scope> <search>  return all items of <scope> (groups,projects) matching <search>
 ```
