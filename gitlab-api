@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-GL_CONFIG_DIR=~/.glapi
-GL_CONFIG=~/.glapi/glapi.conf
-GL_BINDIR=~/.glapi/bin
+GL_CONFIG_DIR=${GL_CONFIG_DIR:-~/.glapi}
+GL_CONFIG=${GL_CONFIG:-$GL_CONFIG_DIR/glapi.conf}
+GL_BINDIR=${GL_BINDIR:-$GL_CONFIG_DIR/bin}
 GL_URL_CURL=https://everything.curl.dev/get
 GL_URL_DOCKER=https://docs.docker.com/engine/install
 GL_URL_GRON=https://github.com/tomnomnom/gron/releases
@@ -9,13 +9,14 @@ GL_URL_YQ=https://github.com/mikefarah/yq/releases
 GL_URL_APIDOCS=https://docs.gitlab.com/ee/api/rest
 GL_CURL_DOCKER_IMG=curlimages/curl:latest
 
-export PATH=~/.glapi/bin:$PATH
+export PATH=$GL_BINDIR:$PATH
 
 CURL=curl
 
 # ------------------------------------------------------------------------------------------------------------------
 # Setup
 # ------------------------------------------------------------------------------------------------------------------
+exiterr   () { echo "Error: $@"; glhelp 1; }
 installed () { command -v "$1" >&/dev/null; }
 install-locally () {
     installed $1 && return
@@ -45,32 +46,59 @@ install-locally () {
     mv $tmpapp $GL_BINDIR/$app
     echo " success" 1>&2
 }
-! installed docker && ! installed $CURL && { echo "Error: Neither docker or at least curl are available:
-    * see: $GL_URL_CURL
-    * see: $GL_URL_DOCKER
-    "
-    exit 1
-}
-installed $CURL || {
-    echo -n "info: curl is missing using docker image instead $GL_CURL_DOCKER_IMG ..." 1>&2 
-    mkdir -p $GL_BINDIR
-    echo -e '#!/usr/bin/env bash\ndocker run -i --rm curlimages/curl "$@"' > $GL_BINDIR/curl
-    chmod +x $GL_BINDIR/curl
-    echo " success" 1>&2
-}
-install-locally yq   $GL_URL_YQ   app_kernel_arch.tar.gz
-install-locally gron $GL_URL_GRON app-kernel-arch-version.tgz
-if [ -e "$GL_CONFIG" ] ; then
-    GLAPI_CONF=$(grep -P '^\s*(GL_TOKEN|GL_SERVER)\s*=' $GL_CONFIG | sed -re 's/\s+//g' -e 's/^(.+)$/export \1/g')
-    eval $GLAPI_CONF
-fi
+check_preconditions () {
+    ! installed docker && ! installed $CURL && { echo "Error: Neither docker or at least curl are available:
+        * see: $GL_URL_CURL
+        * see: $GL_URL_DOCKER
+        "
+        exit 1
+    }
+    installed $CURL || {
+        echo -n "info: curl is missing using docker image instead $GL_CURL_DOCKER_IMG ..." 1>&2 
+        mkdir -p $GL_BINDIR
+        echo -e '#!/usr/bin/env bash\ndocker run -i --rm curlimages/curl "$@"' > $GL_BINDIR/curl
+        chmod +x $GL_BINDIR/curl
+        echo " success" 1>&2
+    }
+    install-locally yq   $GL_URL_YQ   app_kernel_arch.tar.gz
+    install-locally gron $GL_URL_GRON app-kernel-arch-version.tgz
 
-[ -z "$GL_TOKEN"  ] && echo "Either set environment variable GL_TOKEN to your personal Gitlab token or add the following line 'GL_TOKEN=<YOUR_TOKEN>' to ~/.glapi" && exit 1
-[ -z "$GL_SERVER" ] && echo "Either set environment variable GL_SERVER to your Gitlab instance URL or add the following line 'GL_SERVER=<YOUR_GITLAB_INSTANCE_URL>' to ~/.glapi" && exit 1
-
+    read_config
+    [ -z "$GL_TOKEN"    ] && exiterr "Either set GL_TOKEN, or call: gitlab-api init"
+    [ -z "$GL_SERVER"   ] && exiterr "Either set GL_SERVER, or call: gitlab-api init"
+    [ -z "$GL_USERNAME" ] && exiterr "Either set GL_USERNAME, or call: gitlab-api init"
+}
+read_config () {
+    if [ -e "$GL_CONFIG" ] ; then
+        GLAPI_CONF=$(grep -P '^\s*(GL_TOKEN|GL_SERVER|GL_USERNAME)\s*=' $GL_CONFIG | sed -re 's/\s+//g' -e 's/^(.+)$/export \1/g')
+        eval $GLAPI_CONF
+    fi
+}
 # ------------------------------------------------------------------------------------------------------------------
 # Gitlab API functions
 # ------------------------------------------------------------------------------------------------------------------
+# init                                create configuration file ~/.glapi/glapi.conf
+glinit () {
+    echo Setting up configuration...
+    installed git  || exiterr "git is not installed"
+    installed perl || exiterr "perl is not installed"
+    read_config
+    USERNAME="$([ -n "$GL_USERNAME" ] && echo $GL_USERNAME || git config user.name)"
+    SERVER="$(  [ -n "$GL_SERVER"   ] && echo $GL_SERVER   || git remote get-url origin | perl -pe 's{^(?:git|https?://|git@)(.+?)[:/].*}{$1}')"
+    read -p "Enter your Gitlab Username       : " -ei "$USERNAME" GL_USERNAME
+    read -p "Enter your Gitlab Token          : " -ei "$GL_TOKEN" GL_TOKEN
+    read -p "Enter your Gitlab Server Instance: " -ei "$SERVER"   GL_SERVER
+    [ -z "$GL_USERNAME" ] || [ -z "$GL_TOKEN" ] || [ -z "$GL_SERVER" ] \
+        && exiterr "some variables are missing: GL_USERNAME, GL_TOKEN, GL_SERVER"
+    echo "GL_USERNAME = $GL_USERNAME"  > $GL_CONFIG
+    echo "GL_TOKEN    = $GL_TOKEN"    >> $GL_CONFIG
+    echo "GL_SERVER   = $GL_SERVER"   >> $GL_CONFIG
+    chmod 0600 $GL_CONFIG
+    echo Created config: $GL_CONFIG
+    echo Checking preconditions ...
+    check_preconditions
+    exit 1
+}
 # api               <endpoint>        return API result for endpoint
 glapi () { 
     $CURL --silent --header 'Accept: application/json' --header "PRIVATE-TOKEN: $GL_TOKEN" "https://$GL_SERVER/api/v4/$1"
@@ -146,8 +174,7 @@ glhelp () {
 # project.vars      <name>  <cifile>  return all CI variable of project <name> with <cifile:-.gitlab-ci.yml>
 glproject.vars () {
     local projectname=$1 cifile=${2:-.gitlab-ci.yml} id_self=$(mktemp)
-    echo "$projectname" \
-        | glforall search projects {} \
+    glsearch projects "$projectname"\
         | glgron.grep -E '\]\.(id|namespace\.parent_id)' \
         | glid \
         | xargs -n2 echo > $id_self
@@ -187,10 +214,13 @@ glproject.vars () {
     rm $vars_groups $vars_project $id_parents $id_includes $id_self
 }
 
-exiterr () { echo "Error: $@"; glhelp 1; }
+main () {
+    check_preconditions
+    fn="$1"
+    [ -n "$fn" ] || glhelp 0 && { 
+        command -v gl$fn >&/dev/null \
+        || exiterr "Error: unknown command: $fn"
+    } && shift && gl$fn "$@" 
+}
 
-fn="$1"
-[ -n "$fn" ] || glhelp 0 && { 
-    command -v gl$fn >&/dev/null \
-    || exiterr "Error: unknown command: $fn"
-} && shift && gl$fn "$@" 
+main "$@"
