@@ -94,6 +94,7 @@ glinit () {
     [ -n "$GL_TEMPLATE_HOST" ] || read -p "Enter your Gitlab Template Host: " -ei "$TPL_REGHOST"   GL_TEMPLATE_HOST
     [ -z "$GL_USERNAME" ] || [ -z "$GL_TOKEN" ] || [ -z "$GL_SERVER" ] \
         && exiterr "some variables are missing: GL_USERNAME, GL_TOKEN, GL_SERVER"
+    mkdir -p $GL_CONFIG_DIR ${GL_CONFIG/*\//}
     echo "GL_USERNAME       = $GL_USERNAME"      > $GL_CONFIG
     echo "GL_TOKEN          = $GL_TOKEN"         >> $GL_CONFIG
     echo "GL_SERVER         = $GL_SERVER"        >> $GL_CONFIG
