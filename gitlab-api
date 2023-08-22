@@ -85,9 +85,9 @@ glinit () {
     read_config
     USERNAME="$([ -n "$GL_USERNAME" ] && echo $GL_USERNAME || git config user.name)"
     SERVER="$(  [ -n "$GL_SERVER"   ] && echo $GL_SERVER   || git remote get-url origin | perl -pe 's{^(?:git|https?://|git@)(.+?)[:/].*}{$1}')"
-    read -p "Enter your Gitlab Username       : " -ei "$USERNAME" GL_USERNAME
-    read -p "Enter your Gitlab Token          : " -ei "$GL_TOKEN" GL_TOKEN
-    read -p "Enter your Gitlab Server Instance: " -ei "$SERVER"   GL_SERVER
+    [ -n "$GL_USERNAME" ] || read -p "Enter your Gitlab Username       : " -ei "$USERNAME" GL_USERNAME
+    [ -n "$GL_TOKEN"    ] || read -p "Enter your Gitlab Token          : " -ei "$GL_TOKEN" GL_TOKEN
+    [ -n "$GL_SERVER"   ] || read -p "Enter your Gitlab Server Instance: " -ei "$SERVER"   GL_SERVER
     [ -z "$GL_USERNAME" ] || [ -z "$GL_TOKEN" ] || [ -z "$GL_SERVER" ] \
         && exiterr "some variables are missing: GL_USERNAME, GL_TOKEN, GL_SERVER"
     echo "GL_USERNAME = $GL_USERNAME"  > $GL_CONFIG
@@ -182,7 +182,7 @@ glproject.vars () {
     local id_includes=$(mktemp)
     yq .include.[].project $cifile \
         | grep -v null \
-        | xargs -n1 basename \
+        | xargs -i basename {} \
         | glforall search projects {} \
         | glgron.grep -E '\]\.(id|namespace\.parent_id)' \
         | glid \
